@@ -1,93 +1,134 @@
-# Publisher helpers
+# Publisher convert
 
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](LICENSE.md)
 
-Кароч, это набор хэлперов для Publisher'а.
-Помогает упростить работу во view.
+Кароч, это конвертер картинок для Publisher'а.
+Очень часто возникает ситуация, что картинки не нравятся клиенту.
+Этот запил призван облегчить процесс конвертирования.
 
-## Install
+## Установка
 
 Используй composer и все.
 
 ``` bash
-$ php composer.phar require --prefer-dist pers1307/helpers "dev-master"
+$ php composer.phar require --prefer-dist pers1307/convert "dev-master"
 ```
 
-## Капитан, что мне делать с этим?
+## Инструкция
 
-StringCutHelper - класс режет строку до указанного размера.
-Причем, разрежет по целым словам. Без половинчатых слов.
+Пока что в пакете можно найти только сборник рецептов.
+
+Добавление новой картинки в коллекцию, или замена старой
+
+Быстрое решение
 
 ``` php
-use pers1307\helpers\StringCutHelper;
+require_once 'console.php';
 
-$title = 'Hello yellow';
-$stringCutTitle = new StringCutHelper();
-$stringCutTitle->setMaxLenght(100);
-$stringCutTitle->setSeparator('');
-$title = $stringCutTitle->cutString($title);
+$query = new MSTable('{catalog_items}');
+$query->setFields(['*']);
+$items = $query->getItems();
+
+$conf = array(115, 115, true);
+
+foreach ($items as $key => &$item) {
+    $buf = unserialize($item['gallery']);
+
+    foreach ($buf as $key2 => &$elem) {
+
+        if (file_exists(DOC_ROOT . $elem['path']['original'])) {
+            $result = MSFiles::makeImageThumb(DOC_ROOT . $elem['path']['original'], $conf);
+            $elem['path']['min'] = $result;
+        }
+    }
+
+    $item['gallery'] = serialize($buf);
+
+    $sql = 'UPDATE ' . PRFX . "catalog_items SET `gallery`='" . $item['gallery'] . "' WHERE `id`=" . $item['id'];
+    MSCore::db()->execute($sql);
+}
 ```
 
-RowHelper - класс, который поможет тебе, вывести элементы построчно.
-И конечно, правильно вписать все это в верстку
-
-``` html
-<? use pers1307\helpers\RowHelper; ?>
-
-<div class="wrap">
-    <? $helper = new RowHelper(); ?>
-    <? $helper->beforeCycle('<div>', '</div>', 3); ?>
-
-    <? foreach($articles as $item): ?>
-        <?
-        $imageUrl = MSFiles::getImageUrl($item['img'], 'min');
-        $title = $item['name'];
-        $url = $model->getArticleLink($item['id']);
-
-        if (empty($imageUrl)) {
-            $imageUrl = '/DESIGN/SITE/images/no-image/no-image_160_160.png';
-        }
-        $htmlItem = "
-            <a href='$url'>
-                <div><img src='$imageUrl' alt='картинка подраздела $title'/></div>
-                <span>$title</span>
-            </a>
-        ";
-
-        if (empty($title)) {
-            continue;
-        }
-
-        $return = $helper->inCycle($htmlItem);
-
-        if ($return === 'continue') {
-            continue;
-        }
-        ?>
-    <? endforeach; ?>
-
-    <? $helper->afterCycle(); ?>
-</div>
-```
-
-ColumsHelper - класс, который разобъет передаваемы items на колонки,
-горизонтально или вертикально (ну тут пока запара)и вернет эти колонки как массивы,
-оч удобно, trust me.
+Правильное решение, хотя скорее обертка.
 
 ``` php
-use pers1307\helpers\ColumsHelper;
+use pers1307\convert;
 
-$tools = $query->getItems();
+$convertImage = new ConvertImage();
+$convertImage->setDocRoot(DOC_ROOT);
+$convertImage->setConfig([115, 115, true]);
+$convertImage->setCollectionKey('gallery');
 
-$columsHelper = new ColumsHelper();
-$columsHelper->setColumns(4);
-$tools = $columsHelper->horizontal($tools);
+$function = function($pathOriginal, $config) { MSFiles::makeImageThumb($pathOriginal, $config); };
+
+$query = new MSTable('{catalog_items}');
+$query->setFields(['*']);
+$items = $query->getItems();
+
+foreach ($items as $key => &$item) {
+
+    $item = $convertImage->newImageInCollection($item, 'min', $function)
+
+    $sql = 'UPDATE ' . PRFX . "catalog_items SET `gallery`='" . $item['gallery'] . "' WHERE `id`=" . $item['id'];
+    MSCore::db()->execute($sql);
+}
 ```
 
-## Credits
+Пример переконвертирования картинки в галлерее картинок.
+Быстрое решение
+
+``` php
+$query = new MSTable('{works}');
+$query->setFields(['*']);
+$items = $query->getItems();
+
+$galleries = [];
+
+foreach ($items as $key =>$item) {
+    $arrayGallery = unserialize($item['gallery']);
+
+    foreach ($arrayGallery as $key2 => $pic) {
+        $galleries[$key][$key2] = $pic['path']['original'];
+    }
+}
+
+$conf3 = array(800, 480,
+    'watermark' => array(
+        'src' => DOC_ROOT . '/DESIGN/SITE/images/watermark400x400.png',
+        'offset_x' => 150,
+        'offset_y' => 0
+    )
+);
+
+foreach ($items as $key => $item) {
+
+    if (isset($galleries[$key])) {
+
+        $tempGal = unserialize($item['gallery']);
+
+        foreach ($tempGal as $key2 => $temp) {
+
+            // Переконфигурировать картинку
+            //$galleries[$key][$key2];
+            $result = MSFiles::makeImageThumb(DOC_ROOT . $galleries[$key][$key2], $conf3);
+
+            $tempGal[$key2]['path']['win'] = $result;
+        }
+
+        $items[$key]['gallery'] = serialize($tempGal);
+    }
+}
+
+foreach ($items as $key => $item) {
+    $sql = 'UPDATE ' . PRFX . "works SET `gallery`='" . $item['gallery'] . "' WHERE `id`=" . $item['id'];
+    MSCore::db()->execute($sql);
+}
+```
+
+## Автор
 
 - [Pereskokov Yurii (pers1307)](https://github.com/pers1307)
 
-## License
+## Лицензия
 
 The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
